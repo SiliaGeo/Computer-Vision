@@ -1,0 +1,188 @@
+---
+title: "Faces detection: The Eigenfaces method"
+author: "Silia Georgaki"
+format:
+  html:
+    toc: true
+    toc-location: left
+    code-fold: false
+    embed-resources: true
+    fig-width: 8
+    fig-height: 8
+execute:
+  warning: false
+jupyter: python3
+---
+
+# Description
+
+A dataset is provided that contains face images, in matlab format: Olivetti.mat. The dataset consists of images of 40 different faces, with each face being imaged 10 times. Each image consists of 64 × 64 (rows × columns).
+
+The purpose of this exercise is to apply the method of Principal Component Analysis, in order to identify different faces:
+
+1. Divide the dataset into training and test subset (the intersection of the two subsets must be empty, but all 40 persons must be included in both subsets).
+2. Apply the method of PCA to the training set and define the required number of eigenvalues.
+3. Identify each of the faces in the remaining test set, as following:
+
+    a. For each unknown face:
+
+        i. Calculate its projection to each of the eigenfaces
+        ii. Use the projections as features to classify the unknown face into one of the 40 different faces (you may use any classifier of your choice)
+4. Create the (40x40) Confusion matrix
+
+# Import necessary libraries
+
+```{python}
+from scipy.io import loadmat
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.decomposition import PCA
+from sklearn.svm import SVC
+from sklearn.metrics import confusion_matrix, classification_report
+```
+
+# Load and Preprocess Data
+
+```{python}
+# Load raw data from the given file path
+raw_data = loadmat(r'olivetti.mat')
+
+# Extract 'X' values and labels from raw data
+faces = raw_data['X']
+labels = raw_data['label'].ravel()
+
+# Print information about the dataset
+print(f'The dataset contains {faces.shape[0]} faces/images of size (64 x 64) pixels and {len(labels)} corresponding labels.')
+
+# Create a DataFrame from the 'faces' data
+df = pd.DataFrame(faces.T, columns = [str(i + 1) for i in range(faces.shape[0])])
+
+# Reshape the data into images
+images = df.to_numpy().reshape(64, 64, -1)
+images = np.rot90(images, 3)
+images = images.transpose((2, 0, 1))
+```
+
+# Visualize Original Images
+
+```{python}
+# Plot the images
+fig, axs = plt.subplots(40, 10)
+fig.tight_layout()
+for i, ax in enumerate(axs.flat):
+    ax.imshow(images[i], cmap = 'bone')
+    ax.axis('off')
+plt.show()
+```
+
+# Train-Test Split
+
+```{python}
+# Transpose the DataFrame
+df_transposed = df.transpose()
+
+# Split the data using StratifiedShuffleSplit
+shufflesplit = StratifiedShuffleSplit(n_splits = 1, test_size = 0.3, random_state = 42)
+
+for train_index, test_index in shufflesplit.split(df_transposed, labels):
+    X_train = df_transposed.iloc[train_index]
+    X_test = df_transposed.iloc[test_index]
+    y_train = labels[train_index]
+    y_test = labels[test_index]
+```
+
+# Principal Component Analysis (PCA)
+
+```{python}
+# Apply PCA
+pca = PCA(n_components = 150, whiten = True)
+pca.fit(X_train)
+# Compute the mean face and plot it
+mean_face = np.mean(images, axis = 0)
+```
+
+# Visualize Mean Face
+
+```{python}
+plt.imshow(mean_face, cmap = plt.cm.bone)
+plt.axis('off')
+plt.title("Average face")
+plt.show()
+```
+
+# Evaluate Number of Principal Components
+
+```{python}
+# Calculate explained variance
+total_variance = np.sum(pca.explained_variance_)
+explained_variance_percentage = (pca.explained_variance_ / total_variance) * 100
+
+# Print explained variance information
+print("\nTotal Variance:", total_variance)
+print("Explained Variance Percentage for each component:\n", explained_variance_percentage)
+
+# Find the number of components to retain 95% of total variance
+cumulative_explained_variance = np.cumsum(explained_variance_percentage)
+num_components = np.argmax(cumulative_explained_variance >= 95) + 1
+print(f'\nNumber of components that explain 95% of total variance: {num_components}\n')
+```
+
+# Plot Explained Variance
+
+```{python}
+# Plot explained variance percentage
+plt.bar(range(len(explained_variance_percentage)), explained_variance_percentage)
+plt.xlabel('Principal Component')
+plt.ylabel('Explained Variance (%)')
+plt.show()
+```
+
+# SVM Classification
+
+```{python}
+# Project the data onto the PCA basis
+X_train_pca = pca.transform(X_train)
+X_test_pca = pca.transform(X_test)
+
+# Train SVM classifier
+clf = SVC(C = 5., gamma = 0.001)
+clf.fit(X_train_pca, y_train)
+```
+
+# Evaluate Model
+
+```{python}
+# Make predictions and evaluate the model
+y_pred = clf.predict(X_test_pca)
+class_report = classification_report(y_test, y_pred)
+print("Classification Report:\n", class_report)
+```
+
+# Confusion Matrix
+
+```{python}
+confusion_mat = confusion_matrix(y_test, y_pred)
+
+# Plot the Confusion Matrix
+plt.figure()
+plt.imshow(confusion_mat, interpolation='nearest', cmap = plt.cm.Blues)
+plt.title('Confusion Matrix')
+plt.colorbar()
+
+classes = np.unique(labels)
+tick_marks = np.arange(len(classes))
+plt.xticks(tick_marks, classes, rotation = 90)
+plt.yticks(tick_marks, classes)
+
+# Add annotations to the confusion matrix cells
+for i in range(len(classes)):
+    for j in range(len(classes)):
+        plt.text(j, i, str(confusion_mat[i, j]), ha = 'center', va = 'center', color = 'white')
+
+plt.ylabel('Actual label')
+plt.xlabel('Predicted label')
+plt.show()
+
+```
